@@ -1,10 +1,18 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchPrayerTimes, geocodeAddress, fetchLocationSuggestions } from '../services/api';
 import { PrayerTimes, AdhanSettings, LocationData } from '../types';
 import { ADHAN_OPTIONS, PRAYER_METHODS, PRAYER_SCHOOLS } from '../constants';
 import { db } from '../services/db';
 import { Bell, BellOff, Volume2, Loader2, Check, Settings2, MapPin, X, Download, Trash2, CheckCircle2, Play, Pause, AlertCircle, Calculator, Crosshair, ChevronRight, Search, Sparkles } from 'lucide-react';
+
+// Add minimal global type for the optional aistudio API
+declare global {
+  interface Window {
+    aistudio?: {
+      openSelectKey?: () => Promise<void>;
+    };
+  }
+}
 
 interface AdhanProps {
   location: LocationData | null;
@@ -43,7 +51,14 @@ const Adhan: React.FC<AdhanProps> = ({ location, settings, onUpdateSettings, onU
   const debounceTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    db.getAllDownloadedAdhanIds().then(setDownloadedIds);
+    (async () => {
+      try {
+        const ids = await db.getAllDownloadedAdhanIds();
+        setDownloadedIds(ids);
+      } catch (err) {
+        console.error('Failed to load downloaded adhan ids', err);
+      }
+    })();
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -131,7 +146,10 @@ const Adhan: React.FC<AdhanProps> = ({ location, settings, onUpdateSettings, onU
   }, [currentAndNext]);
 
   useEffect(() => {
-    if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
+    if (debounceTimer.current) {
+      window.clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
     if (!searchQuery || searchQuery.length < 2) {
       setSuggestions([]);
       return;
@@ -150,7 +168,7 @@ const Adhan: React.FC<AdhanProps> = ({ location, settings, onUpdateSettings, onU
       } finally {
         setIsSuggesting(false);
       }
-    }, 600) as unknown as number;
+    }, 600);
 
     return () => {
       if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
@@ -199,6 +217,11 @@ const Adhan: React.FC<AdhanProps> = ({ location, settings, onUpdateSettings, onU
   const useCurrentLocation = () => {
     setIsSearching(true);
     setSearchError(null);
+    if (!('geolocation' in navigator)) {
+      setSearchError('Geolocation is not available in this environment.');
+      setIsSearching(false);
+      return;
+    }
     navigator.geolocation.getCurrentPosition((pos) => {
       onUpdateLocation({
         lat: pos.coords.latitude,
@@ -459,8 +482,9 @@ const Adhan: React.FC<AdhanProps> = ({ location, settings, onUpdateSettings, onU
                   value={searchQuery} 
                   onChange={e => { setSearchQuery(e.target.value); setSearchError(null); }} 
                   placeholder="e.g. London, UK" 
+                  aria-label="Search location"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleManualSearch(); } }}
                   className="w-full bg-slate-50 border-2 border-transparent rounded-[2rem] p-5 pr-16 text-sm font-bold outline-none focus:bg-white focus:border-emerald-500/20 transition-all shadow-inner"
-                  onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                     {isSuggesting && <Loader2 size={16} className="animate-spin text-emerald-600 mr-2" />}
